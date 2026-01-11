@@ -40,14 +40,14 @@
     ![Створіть два нові скрипти](matirials/open_editor.png)
 
 
-3. **Модуль Tracker:** Скопіюйте код файлу `tracker.js` та збережіть.
-4. **Модуль Sharer:** Скопіюйте код файлу `share.js` та збережіть.
-
----
+3. **Модуль Tracker:** Скопіюйте код файлу [`tracker.js`](https://github.com/tinitef24/ArbiHunter-System/blob/main/tracker.js) та збережіть.
+4. **Модуль Sharer:** Скопіюйте код файлу [`share.js`](https://github.com/tinitef24/ArbiHunter-System/blob/main/share.js) та збережіть.
 
 ### Приклад вставки коду:
 :
     ![Приклад](matirials/paste_code.png)
+
+---
 
 ### Крок 3: Активація доступу
 Система працює через White-list авторизацію:
@@ -63,6 +63,10 @@
 - Встановіть з магазину Chrome: [Auto Refresh Plus — Auto Refresh Page](https://chromewebstore.google.com/detail/auto-refresh-plus-page-mo/hgeljhfekpckiiplhkigfehkdpldcggm)
 - **Інтервал:** встановіть на **1800 секунд** (30 хвилин)
 - **Показ таймера:** увімкніть видимий таймер, щоб бачити зворотній відлік та контролювати перезавантаження
+
+### Приклад:
+:
+    ![Приклад](matirials/refresh.png)
 
 Це дозволить автоматично перезавантажувати сторінку й оперативно відновлювати роботу скрипта, якщо виникнуть короткочасні перебої.
 
