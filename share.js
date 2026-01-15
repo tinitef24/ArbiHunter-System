@@ -179,7 +179,7 @@
                 const pinBtn = headerP.querySelector('.pin-button');
                 if (pinBtn) {
                     headerP.insertBefore(btn, pinBtn);
-                } 
+                }
                 else {
                     headerP.appendChild(btn);
                 }
@@ -195,11 +195,27 @@
 
     async function captureAndShare(cardElement) {
         const originalStyle = cardElement.getAttribute('style');
-        const hiddenElements = [];
+        const restoreMap = new Map();
         const tempElements = [];
+
+        // Функція для безпечного приховування та збереження стану
+        const hide = (el) => {
+            if (!el || restoreMap.has(el)) return;
+            restoreMap.set(el, el.style.display);
+            el.style.setProperty('display', 'none', 'important');
+        };
+
+        // Функція для додавання тимчасових елементів
+        const addTemp = (parent, el, before = null) => {
+            if (before) parent.insertBefore(el, before);
+            else parent.appendChild(el);
+            tempElements.push(el);
+            return el;
+        };
 
         cardElement.classList.add('arb-snapshot-mode');
 
+        // 1. Приховуємо елементи керування
         const selectorsToHide = [
             '.tc-move-controls', '.restart-button', '.pin-button', '.favorites-star-button',
             '.arb-share-btn', 'button:not(.botside-short):not(.botside-long)', 'input[type="checkbox"]',
@@ -207,14 +223,10 @@
         ];
 
         selectorsToHide.forEach(sel => {
-            cardElement.querySelectorAll(sel).forEach(el => {
-                el.dataset.oldDisplay = el.style.display;
-                el.style.setProperty('display', 'none', 'important');
-                hiddenElements.push(el);
-            });
+            cardElement.querySelectorAll(sel).forEach(el => hide(el));
         });
 
-        // Конвертація інпутів
+        // 2. Конвертація інпутів у текст
         cardElement.querySelectorAll('input:not([type="checkbox"]), select').forEach(input => {
             if (input.offsetParent === null) return;
             const replacement = document.createElement('div');
@@ -222,22 +234,20 @@
             replacement.innerText = input.value || '-';
 
             const rect = input.getBoundingClientRect();
-            // Зменшуємо віконце Order Size, щоб влізла ціна
+            // Зменшуємо віконце Order Size
             const isOrderSize = input.closest('.field-group')?.innerText.includes('Order Size');
             if (isOrderSize) {
-                replacement.style.width = '70px'; // Фіксована менша ширина
+                replacement.style.width = '70px';
                 replacement.style.marginRight = '5px';
             } else if (rect.width > 20) {
                 replacement.style.width = rect.width + 'px';
             }
 
-            input.dataset.oldDisplay = input.style.display;
-            input.style.display = 'none';
-            input.parentNode.insertBefore(replacement, input);
-            tempElements.push(replacement);
+            hide(input);
+            addTemp(input.parentNode, replacement, input);
         });
 
-        // Side Buttons
+        // 3. Side Buttons (Ми називаємо їх "Site" розділ)
         const sideWrap = cardElement.querySelector('.side-buttons-wrap') || cardElement.querySelector('.side-buttons');
         if (sideWrap) {
             const activeBtn = sideWrap.querySelector('.active') || sideWrap.querySelector('.botside-short, .botside-long');
@@ -246,28 +256,22 @@
                 const sideDisplay = document.createElement('span');
                 sideDisplay.className = 'arb-snapshot-side ' + (sideText.toLowerCase().includes('short') ? 'short' : '');
                 sideDisplay.innerText = sideText;
-                Array.from(sideWrap.children).forEach(child => {
-                    child.dataset.oldDisplay = child.style.display;
-                    child.style.display = 'none';
-                });
-                sideWrap.appendChild(sideDisplay);
-                tempElements.push(sideDisplay);
+
+                // Ховаємо оригінальні кнопки, додаємо текст
+                Array.from(sideWrap.children).forEach(child => hide(child));
+                addTemp(sideWrap, sideDisplay);
             }
         }
 
+        // 4. Таймер та Водяний знак
         const originalTimer = cardElement.querySelector('.started-at-timer');
-        if (originalTimer) {
-            originalTimer.dataset.oldDisplay = originalTimer.style.display;
-            originalTimer.style.display = 'none';
-            hiddenElements.push(originalTimer);
-        }
+        if (originalTimer) hide(originalTimer);
 
         const watermark = document.createElement('div');
         watermark.className = 'arb-snapshot-footer';
         const timestamp = originalTimer?.innerText.replace('Started at: ', '') || '';
         watermark.innerHTML = `<span>ArbiHunter System 🚀</span> <span>Started at: ${timestamp}</span>`;
-        cardElement.appendChild(watermark);
-        tempElements.push(watermark);
+        addTemp(cardElement, watermark);
 
         try {
             await new Promise(r => setTimeout(r, 150));
@@ -281,29 +285,18 @@
         } catch (e) {
             console.error(e);
         } finally {
+            // ВІДНОВЛЕННЯ ОРИГІНАЛЬНОГО СТАНУ
             cardElement.classList.remove('arb-snapshot-mode');
             if (originalStyle) cardElement.setAttribute('style', originalStyle);
             else cardElement.removeAttribute('style');
 
+            // 1. Видаляємо всі тимчасові елементи (div, watermark, sideDisplay)
             tempElements.forEach(el => el.remove());
-            hiddenElements.forEach(el => {
-                el.style.display = el.dataset.oldDisplay || '';
-                delete el.dataset.oldDisplay;
+
+            // 2. Відновлюємо видимість оригінальних елементів з Map
+            restoreMap.forEach((oldDisplay, el) => {
+                el.style.display = oldDisplay;
             });
-            cardElement.querySelectorAll('input, select').forEach(el => {
-                if (el.dataset.oldDisplay !== undefined) {
-                    el.style.display = el.dataset.oldDisplay;
-                    delete el.dataset.oldDisplay;
-                }
-            });
-            if (sideWrap) {
-                Array.from(sideWrap.children).forEach(child => {
-                    if (child.dataset.oldDisplay !== undefined) {
-                        child.style.display = child.dataset.oldDisplay;
-                        delete child.dataset.oldDisplay;
-                    }
-                });
-            }
         }
     }
     function showModal(imgData) {
@@ -346,45 +339,65 @@
                 </div>
                 <div class="arb-actions">
                     <button class="arb-btn arb-btn-cancel" id="arb-cancel">Cancel</button>
+                    <button class="arb-btn arb-btn-cancel" id="arb-send-admin">📩 To Admin</button>
                     <button class="arb-btn arb-btn-send" id="arb-send">Send Signal ✈️</button>
                 </div>
             </div>
         `;
         document.body.appendChild(overlay);
+
+        // --- ELEMENTS ---
+        const getEl = (id) => overlay.querySelector(`#${id}`);
+        const closeBtn = getEl('arb-close');
+        const cancelBtn = getEl('arb-cancel');
+        const sendBtn = getEl('arb-send');
+        const sendAdminBtn = getEl('arb-send-admin');
+        const donateBtn = getEl('arb-donate-btn');
+        const presetSelect = getEl('arb-comment-preset');
+        const customInput = getEl('arb-custom-comment');
+        const topicSelect = getEl('arb-topic');
+
         // --- EVENTS ---
-        document.getElementById('arb-close').onclick = () => { overlay.style.opacity = '0'; setTimeout(() => overlay.remove(), 200); };
-        document.getElementById('arb-cancel').onclick = () => { overlay.style.opacity = '0'; setTimeout(() => overlay.remove(), 200); };
-        document.getElementById('arb-donate-btn').onclick = () => {
-            const addr = '0x0bed23201c5c0095acef3bbc1c92c7c59f15e867';
-            navigator.clipboard.writeText(addr).then(() => {
-                const title = document.querySelector('.arb-donate-title');
-                const text = document.querySelector('.arb-donate-text');
-                const originalTitle = title.innerText;
-                const originalText = text.innerHTML;
-                title.innerText = '✅ АДРЕСУ СКОПІЙОВАНО!';
-                title.style.color = '#10b981';
-                text.innerHTML = '<span style="color:#10b981">Мережа BEP20 готова до відправки!</span>';
-                alert(`🎯 Для розвитку проекту\n\nКожен донат робить ArbiHunter System📚 швидшим та стабільнішим.\n\nМережа: BNB Smart Chain (BEP20)\nАдреса: ${addr}\n\n✅ Адреса вже в буфері обміну. Дякуємо, що ви з нами! 💪`);
-                setTimeout(() => {
-                    title.innerText = originalTitle;
-                    title.style.color = '#f59e0b';
-                    text.innerHTML = originalText;
-                }, 3000);
-            });
-        };
-        const presetSelect = document.getElementById('arb-comment-preset');
-        const customInput = document.getElementById('arb-custom-comment');
-        if (presetSelect) {
+        if (closeBtn) closeBtn.onclick = () => { overlay.style.opacity = '0'; setTimeout(() => overlay.remove(), 200); };
+        if (cancelBtn) cancelBtn.onclick = () => { overlay.style.opacity = '0'; setTimeout(() => overlay.remove(), 200); };
+
+        if (donateBtn) {
+            donateBtn.onclick = () => {
+                const addr = '0x0bed23201c5c0095acef3bbc1c92c7c59f15e867';
+                navigator.clipboard.writeText(addr).then(() => {
+                    const title = overlay.querySelector('.arb-donate-title');
+                    const text = overlay.querySelector('.arb-donate-text');
+                    if (!title || !text) return;
+                    const originalTitle = title.innerText;
+                    const originalText = text.innerHTML;
+                    title.innerText = '✅ АДРЕСУ СКОПІЙОВАНО!';
+                    title.style.color = '#10b981';
+                    text.innerHTML = '<span style="color:#10b981">Мережа BEP20 готова до відправки!</span>';
+                    alert(`🎯 Для розвитку проекту\n\nКожен донат робить ArbiHunter System📚 швидшим та стабільнішим.\n\nМережа: BNB Smart Chain (BEP20)\nАдреса: ${addr}\n\n✅ Адреса вже в буфері обміну. Дякуємо, що ви з нами! 💪`);
+                    setTimeout(() => {
+                        title.innerText = originalTitle;
+                        title.style.color = '#f59e0b';
+                        text.innerHTML = originalText;
+                    }, 3000);
+                });
+            };
+        }
+
+        if (presetSelect && customInput) {
             presetSelect.onchange = () => {
                 customInput.style.display = presetSelect.value === 'custom' ? 'block' : 'none';
                 if (presetSelect.value === 'custom') customInput.focus();
             };
         }
+
         const send = async (isAdmin = false) => {
-            const btn = isAdmin ? document.getElementById('arb-send-admin') : document.getElementById('arb-send');
-            const topicId = document.getElementById('arb-topic').value;
+            const btn = isAdmin ? sendAdminBtn : sendBtn;
+            if (!btn) return;
+
+            const topicId = topicSelect ? topicSelect.value : null;
             let comment = presetSelect.value === 'custom' ? customInput.value.trim() : presetSelect.value;
             const originalText = btn.innerHTML;
+
             btn.innerHTML = 'Sending...';
             btn.disabled = true;
             try {
@@ -413,8 +426,9 @@
                 btn.disabled = false;
             }
         };
-        document.getElementById('arb-send').onclick = () => send(false);
-        document.getElementById('arb-send-admin').onclick = () => send(true);
+
+        if (sendBtn) sendBtn.onclick = () => send(false);
+        if (sendAdminBtn) sendAdminBtn.onclick = () => send(true);
     }
     init();
 })();
