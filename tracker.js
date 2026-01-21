@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Arbitrage Master Master v1.3 (Secure)
+// @name         Arbitrage Master Master v1.5 
 // @match        *://*/*
 // @grant        none
 // ==/UserScript==
@@ -16,11 +16,14 @@
     let cardStates = new Map();
     let isProcessing = false;
     let systemActive = false;
+
+    // --- 🎮 CLASSIC LOGGERS (Single-line, Dark background) ---
     const logger = (m, color = "#6366f1") => console.log(`%c[ARB-TRACKER] ${m}`, `color: ${color}; font-weight: bold; background: #1e1e2e; padding: 2px 5px; border-radius: 4px;`);
+    const loggerAZ = (m, color = "#a855f7") => console.log(`%c[AUTO-ZERO] ${m}`, `color: ${color}; font-weight: bold; background: #1e1e2e; padding: 2px 5px; border-radius: 4px;`);
 
     // --- UI HELPERS ---
     function createUI() {
-        const ROOT_ID = 'arb-root-v1-2'; // Keep new ID to avoid conflict
+        const ROOT_ID = 'arb-root-v1-2';
         const existing = document.getElementById(ROOT_ID);
         if (existing) return existing;
 
@@ -46,7 +49,6 @@
             .ver-badge { font-size:10px; color:#475569; text-align:center; margin-top:10px; }
             .donate-box { margin-top: 12px; padding: 8px; border-radius: 12px; background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(245, 158, 11, 0.05)); border: 1px dashed rgba(245, 158, 11, 0.3); text-align: center; cursor: pointer; transition: all 0.2s; }
             .donate-box:hover { background: rgba(245, 158, 11, 0.15); border-style: solid; transform: translateY(-1px); }
-            .donate-box:active { transform: translateY(0); }
             .donate-title { font-size: 10px; font-weight: bold; color: #f59e0b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
             .donate-text { font-size: 11px; color: #fff; display: flex; align-items: center; justify-content: center; gap: 5px; }
             .switch { position: relative; display: inline-block; width: 34px; height: 20px; }
@@ -67,19 +69,9 @@
         const userId = localStorage.getItem('arb_id');
         const name = localStorage.getItem('arb_name');
 
-        // 1. Якщо немає ID — показуємо форму реєстрації
-        if (!userId) {
-            renderRegister(wrap);
-            return;
-        }
+        if (!userId) { renderRegister(wrap); return; }
+        if (userId && !apiKey) { renderPending(wrap, userId, name); return; }
 
-        // 2. Якщо є ID, але немає ключа — перевіряємо статус
-        if (userId && !apiKey) {
-            renderPending(wrap, userId, name);
-            return;
-        }
-
-        // 3. Якщо все є — показуємо головне меню
         renderMain(wrap, name);
         startSystem();
     }
@@ -88,7 +80,7 @@
         wrap.innerHTML = `
             <div class="glass">
                 <h3 style="margin:0 0 15px 0">🔐 Доступ до системи</h3>
-                <p style="font-size:12px; color:#94a3b8; margin-bottom:15px">Введіть ваше ім'я для запиту доступу у адміністратора.</p>
+                <p style="font-size:12px; color:#94a3b8; margin-bottom:15px">Введіть ваше ім'я для запиту доступу...</p>
                 <input id="reg_in" type="text" placeholder="Прізвище Ім'я">
                 <button id="reg_btn" class="btn-main">Надіслати запит</button>
             </div>`;
@@ -96,21 +88,17 @@
         document.getElementById('reg_btn').onclick = async () => {
             const n = document.getElementById('reg_in').value;
             if (!n) return alert("Введіть ім'я!");
-
             try {
                 const res = await fetch(`${CONFIG.BACKEND}/api/register`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ firstName: n })
                 }).then(r => r.json());
-
                 if (res.success) {
                     localStorage.setItem('arb_id', res.userId);
                     localStorage.setItem('arb_name', n);
-                    checkAuth(); // Перемалювати на Pending
-                } else {
-                    alert("Помилка реєстрації");
-                }
-            } catch (e) { alert("Помилка з'єднання з сервером"); }
+                    checkAuth();
+                } else { alert("Помилка реєстрації"); }
+            } catch (e) { alert("Сервер недоступний"); }
         };
     }
 
@@ -119,13 +107,13 @@
             <div class="glass" style="text-align:center">
                 <div style="font-size:40px; margin-bottom:10px">⏳</div>
                 <h3 style="margin:0">Очікування підтвердження</h3>
-                <p style="font-size:12px; color:#94a3b8; margin:10px 0">Ваш запит надіслано адміністратору.<br>ID: ${userId}</p>
+                <p style="font-size:12px; color:#94a3b8; margin:10px 0">ID: ${userId}</p>
                 <div id="check_status" style="font-size:12px; color:#f59e0b">Перевірка статусу...</div>
                 <button id="reset_btn" class="btn-stats" style="margin-top:15px">❌ Скасувати запит</button>
             </div>`;
 
         document.getElementById('reset_btn').onclick = () => {
-            if (confirm('Ви дійсно хочете скасувати запит і очистити дані?')) {
+            if (confirm('Очистити дані реєстрації?')) {
                 localStorage.clear();
                 location.reload();
             }
@@ -137,14 +125,13 @@
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId })
                 }).then(r => r.json());
-
                 if (res.status === 'approved') {
                     clearInterval(poll);
                     localStorage.setItem('arb_api_key', res.apiKey);
-                    checkAuth(); // Перехід в Main
+                    checkAuth();
                 } else if (res.status === 'rejected') {
                     clearInterval(poll);
-                    wrap.innerHTML = `<div class="glass" style="text-align:center; border-color:#ef4444"><h3 style="color:#ef4444">❌ Відмовлено</h3><p>Адміністратор відхилив ваш запит.</p><button onclick="localStorage.clear();location.reload()" class="btn-stats">Скинути</button></div>`;
+                    wrap.innerHTML = `<div class="glass" style="text-align:center; border-color:#ef4444"><h3 style="color:#ef4444">❌ Відмовлено</h3><p>Запит відхилено.</p><button onclick="localStorage.clear();location.reload()" class="btn-stats">Скинути</button></div>`;
                 }
             } catch (e) { }
         }, 3000);
@@ -153,7 +140,7 @@
     function renderMain(wrap, name) {
         const isH = localStorage.getItem('arb_hide') === 'true';
 
-        const content = `
+        wrap.innerHTML = `
             <div class="glass ${isH ? 'hidden' : ''}">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px">
                     <div style="display:flex; align-items:center; gap:8px">
@@ -174,6 +161,14 @@
                     </label>
                 </div>
 
+                <div class="row">
+                    <span>Auto-Zero</span>
+                    <label class="switch">
+                        <input type="checkbox" id="zero_ch" ${localStorage.getItem('arb_auto_zero') === 'true' ? 'checked' : ''}>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
                 <button id="test_btn" class="btn-main">🧪 Тест з'єднання</button>
                 <button id="stats_btn" class="btn-stats">👥 Команда онлайн</button>
 
@@ -182,20 +177,21 @@
                     <div class="donate-text"><span>☕</span> Купити каву (BEP20)</div>
                 </div>
 
-                <div class="ver-badge">v1.3 Stable</div>
+                <div class="ver-badge">v1.5 Stable</div>
             </div>
             <div class="rocket ${isH ? '' : 'hidden'}" id="rock_btn">🚀</div>
         `;
 
-        wrap.innerHTML = content;
-
-        // Handlers
         document.getElementById('close_btn').onclick = () => { localStorage.setItem('arb_hide', 'true'); renderMain(wrap, name); };
         document.getElementById('rock_btn').onclick = () => { localStorage.setItem('arb_hide', 'false'); renderMain(wrap, name); };
         document.getElementById('act_ch').onchange = (e) => {
             localStorage.setItem('arb_active', e.target.checked);
-            logger(`Моніторинг: ${e.target.checked}`);
+            logger(`Моніторинг: ${e.target.checked}`, e.target.checked ? "#10b981" : "#ef4444");
             sendHeartbeat();
+        };
+        document.getElementById('zero_ch').onchange = (e) => {
+            localStorage.setItem('arb_auto_zero', e.target.checked);
+            loggerAZ(`Auto-Zero: ${e.target.checked}`, e.target.checked ? "#10b981" : "#ef4444");
         };
         document.getElementById('test_btn').onclick = runTest;
         document.getElementById('stats_btn').onclick = showStats;
@@ -214,16 +210,117 @@
         };
     }
 
-    // --- CORE LOGIC ---
+    // --- ⚡ AUTO-ZERO (TURBO PERSISTENCE) ---
+    let lastStopTimestamp = 0;
+
+    document.addEventListener('mousedown', (e) => {
+        const target = e.target;
+        const stopBtn = target.closest('.stop') || target.closest('.stop-button') || target.innerText === 'STOP';
+
+        if (stopBtn) {
+            lastStopTimestamp = Date.now();
+            loggerAZ(`🛑 STOP button pressed at ${new Date(lastStopTimestamp).toLocaleTimeString()}`);
+            return;
+        }
+
+        const startBtn = target.closest('.start') || target.closest('.start-button');
+        if (startBtn) {
+            if (localStorage.getItem('arb_auto_zero') !== 'true') return;
+
+            const now = Date.now();
+            if (lastStopTimestamp > 0 && (now - lastStopTimestamp) < 5000) {
+                loggerAZ(`🛡️ Protection: Fast restart detected. Allowing start.`);
+                return;
+            }
+
+            const card = startBtn.closest('.trade-card');
+            if (card) {
+                const groups = Array.from(card.querySelectorAll('.field-group, .inline-field-group'));
+                const maxOrderGroup = groups.find(g => {
+                    const t = g.innerText.toLowerCase();
+                    return t.includes('max orders') || t.includes('max open');
+                });
+
+                if (maxOrderGroup) {
+                    const input = maxOrderGroup.querySelector('input');
+                    const saveBtn = maxOrderGroup.querySelector('button');
+
+                    if (input && input.value !== '0') {
+                        loggerAZ(`◆ Non-zero: "${input.value}". INTERCEPTING!`, "#f59e0b");
+                        e.preventDefault();
+                        e.stopPropagation();
+
+                        const originalText = startBtn.innerText;
+                        startBtn.innerText = 'Resetting...';
+                        startBtn.style.opacity = '0.7';
+
+                        const forceValue = (el, val) => {
+                            try {
+                                const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                                setter.call(el, val);
+                                el.dispatchEvent(new Event('input', { bubbles: true }));
+                                el.dispatchEvent(new Event('change', { bubbles: true }));
+                                if (el._valueTracker) el._valueTracker.setValue(val);
+                            } catch (err) { el.value = val; }
+                        };
+
+                        input.focus();
+                        forceValue(input, '0');
+
+                        let passes = 0;
+                        const persistenceId = setInterval(() => {
+                            if (input.value !== '0') {
+                                loggerAZ(`🔃 Detected revert! Re-forcing 0.`);
+                                forceValue(input, '0');
+                            }
+                            if (++passes >= 15) {
+                                clearInterval(persistenceId);
+                                input.blur();
+                            }
+                        }, 100);
+
+                        if (saveBtn) {
+                            let saveAtt = 0;
+                            const checkSaveId = setInterval(() => {
+                                if ((!saveBtn.disabled && input.value === '0') || ++saveAtt >= 60) {
+                                    clearInterval(checkSaveId);
+                                    if (input.value !== '0') forceValue(input, '0');
+
+                                    if (!saveBtn.disabled) {
+                                        loggerAZ(`💾 SAVE ready!`);
+                                        saveBtn.click();
+                                        startBtn.innerText = 'Reset Done';
+                                        startBtn.style.backgroundColor = '#239825';
+                                    } else {
+                                        loggerAZ(`⚠️ Force-enabling Save.`);
+                                        saveBtn.disabled = false;
+                                        saveBtn.removeAttribute('disabled');
+                                        saveBtn.click();
+                                        startBtn.innerText = 'Reset (Forced)';
+                                    }
+
+                                    setTimeout(() => {
+                                        startBtn.innerText = originalText;
+                                        startBtn.style.opacity = '1';
+                                        startBtn.style.backgroundColor = '';
+                                    }, 1000);
+                                }
+                            }, 50);
+                        }
+                    }
+                }
+            }
+        }
+    }, true);
+
+    // --- 📊 MONITOR ENGINE ---
     function getSignedFunding(cell) {
         if (!cell) return { text: '-', val: 0 };
-        let rawText = cell.innerText.split(',')[0].trim();
-        let rawVal = parseFloat(rawText.replace('%', ''));
-        if (isNaN(rawVal)) return { text: '-', val: 0 };
-        let absVal = Math.abs(rawVal);
-        let isLoss = cell.classList.contains('loss-rate');
-        let signedVal = isLoss ? -absVal : absVal;
-        return { text: (signedVal > 0 ? '+' : '') + signedVal + '%', val: signedVal };
+        const raw = cell.innerText.split(',')[0].trim();
+        const val = parseFloat(raw.replace('%', ''));
+        if (isNaN(val)) return { text: '-', val: 0 };
+        const signed = cell.classList.contains('loss-rate') ? -Math.abs(val) : Math.abs(val);
+        return { text: (signed > 0 ? '+' : '') + signed + '%', val: signed };
     }
 
     function extractData(card, action, orders) {
@@ -236,24 +333,20 @@
 
             const funding1 = getSignedFunding(fRow?.cells[1]);
             const funding2 = getSignedFunding(fRow?.cells[2]);
-            const next1Text = nRow?.cells[1]?.innerText.trim() || "-";
+            const next1 = nRow?.cells[1]?.innerText.trim() || "-";
 
-            const urgencyMatch = next1Text.match(/\((\d+):(\d+)\)/);
             let isUrgent = false;
-            if (urgencyMatch) {
-                const mins = parseInt(urgencyMatch[1]);
-                const hours = next1Text.includes('h') ? 1 : 0;
-                if (hours === 0 && mins < 15) isUrgent = true;
-            }
+            const uMatch = next1.match(/\((\d+):(\d+)\)/);
+            if (uMatch && !next1.includes('h') && parseInt(uMatch[1]) < 15) isUrgent = true;
 
             return {
                 action,
-                symbol: card.querySelector('.trade-details strong').innerText,
+                symbol: card.querySelector('.trade-details strong')?.innerText || '?',
                 side: card.querySelector('.botside-short, .active')?.innerText || 'SHORT',
-                ex1: card.querySelector('.short').innerText.trim(),
-                ex2: card.querySelector('.long').innerText.trim(),
-                exName1: rows[0].cells[1].innerText.trim(),
-                exName2: rows[0].cells[2].innerText.trim(),
+                ex1: card.querySelector('.short')?.innerText.trim() || '?',
+                ex2: card.querySelector('.long')?.innerText.trim() || '?',
+                exName1: rows[0]?.cells[1]?.innerText.trim() || '?',
+                exName2: rows[0]?.cells[2]?.innerText.trim() || '?',
                 openSpread: field('Open Spread')?.querySelector('input')?.value || '0',
                 closeSpread: field('Close Spread')?.querySelector('input')?.value || '0',
                 openTicks: field('Open ticks')?.querySelector('input')?.value || '0',
@@ -264,51 +357,39 @@
                 maxSize: Array.from(card.querySelectorAll('.field-group')).find(g => g.innerText.includes('Allowed size'))?.querySelector('span')?.innerText.split('Max:')[1]?.trim() || '?',
                 f1_num: funding1.val,
                 f2_num: funding2.val,
-                next1: next1Text,
+                next1: next1,
                 next2: nRow?.cells[2]?.innerText.trim() || '-',
-                isUrgent: isUrgent,
+                isUrgent,
                 enterSpread: table.querySelector('.enterSpread')?.innerText || '-%',
                 startTime: card.querySelector('.started-at-timer')?.innerText.replace('Started at: ', '') || '-'
             };
         } catch (e) { return null; }
     }
 
-    // --- SINGLETON CHECK ---
-    if (window.arb_monitor_active) {
-        console.warn("⚠️ [ARB-TRACKER] Script is already running. Stopping new instance.");
-        return;
-    }
+    if (window.arb_monitor_active) return;
     window.arb_monitor_active = true;
 
     async function monitor() {
-        if (!systemActive || isProcessing) return;
-        if (localStorage.getItem('arb_active') === 'false') return;
-
+        if (!systemActive || isProcessing || localStorage.getItem('arb_active') === 'false') return;
         isProcessing = true;
-        const cards = document.querySelectorAll('.trade-card');
+
         const apiKey = localStorage.getItem('arb_api_key');
+        if (!apiKey) { isProcessing = false; return; }
 
-        if (!apiKey) {
-            logger("⚠️ API Key missing in storage", "#f59e0b");
-            isProcessing = false;
-            return;
-        }
-
-        for (const card of cards) {
-            const symbol = card.querySelector('.trade-details strong')?.innerText;
-            if (!symbol) continue;
+        for (const card of document.querySelectorAll('.trade-card')) {
+            const sym = card.querySelector('.trade-details strong')?.innerText;
+            if (!sym) continue;
 
             const ordersRow = Array.from(card.querySelectorAll('tr')).find(r => r.innerText.includes('Orders'));
             const current = parseInt(ordersRow?.querySelector('td:last-child')?.innerText || "0");
-            const prev = cardStates.get(symbol) || 0;
+            const prev = cardStates.get(sym) || 0;
 
             if (prev !== current) {
-                logger(`Зміна ${symbol}: ${prev} -> ${current}`, "#f59e0b");
-                let act = (prev === 0 && current > 0) ? 'open' : (current > prev ? 'increase' : (current === 0 ? 'close' : 'decrease'));
-
+                logger(`Зміна ${sym}: ${prev} -> ${current}`, "#f59e0b");
+                const act = (prev === 0 && current > 0) ? 'open' : (current > prev ? 'increase' : (current === 0 ? 'close' : 'decrease'));
                 const data = extractData(card, act, current);
                 if (data) {
-                    console.log(`📤 [CLIENT] Sending data for ${symbol}:`, data);
+                    console.log(`%c[ARB-TRACKER] %c📤 [CLIENT] Sending data for ${sym}`, "color: #6366f1; font-weight: bold; background: #1e1e2e; padding: 2px 5px; border-radius: 4px;", "color: #fff;");
                     try {
                         const res = await fetch(`${CONFIG.BACKEND}/api/position`, {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -316,53 +397,42 @@
                                 positionData: data,
                                 userName: localStorage.getItem('arb_name'),
                                 userId: localStorage.getItem('arb_id'),
-                                apiKey: apiKey
+                                apiKey
                             })
                         });
-
-                        const json = await res.json();
-
-                        if (res.ok && json.success) {
-                            console.log(`✅ [CLIENT] Data sent successfully for ${symbol}`);
-                            logger(`✅ Signal sent: ${symbol} ${act}`, "#10b981");
+                        const resJ = await res.json();
+                        if (res.ok && resJ.success) {
+                            logger(`✅ Signal sent: ${sym} ${act.toUpperCase()}`, "#10b981");
                         } else {
-                            console.error(`❌ [CLIENT] Server Error:`, json);
-                            logger(`⛔ Server denied: ${json.error}`, "#ef4444");
-
-                            if (res.status === 403) {
-                                alert("⛔ помилка авторизації (403). Спробуйте перезавантажити сторінку або перелогінитись.");
-                                systemActive = false; // Stop monitoring
-                            }
+                            logger(`⛔ Server denied: ${resJ.error}`, "#ef4444");
+                            if (res.status === 403) systemActive = false;
                         }
-                    } catch (e) {
-                        console.error(`❌ [CLIENT] Network Error:`, e);
-                        logger(`❌ Network Error`, "#ef4444");
-                    }
-
+                    } catch (e) { logger(`❌ Network Error`, "#ef4444"); }
                     await new Promise(r => setTimeout(r, 500));
                 }
-                cardStates.set(symbol, current);
+                cardStates.set(sym, current);
             }
         }
         isProcessing = false;
     }
 
     function sendHeartbeat() {
-        if (!localStorage.getItem('arb_id')) return;
-        const apiKey = localStorage.getItem('arb_api_key');  // Додали apiKey
+        const id = localStorage.getItem('arb_id');
+        const key = localStorage.getItem('arb_api_key');
+        if (!id || !key) return;
         fetch(`${CONFIG.BACKEND}/api/heartbeat`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                userId: localStorage.getItem('arb_id'),
+                userId: id,
                 userName: localStorage.getItem('arb_name'),
                 isMonitoring: localStorage.getItem('arb_active') !== 'false',
-                apiKey: apiKey  // Додали apiKey
+                apiKey: key
             })
         }).catch(() => { });
     }
 
     function startSystem() {
-        logger(`Запуск моніторингу...`, "#10b981");
+        logger("Запуск моніторингу...", "#10b981");
         sendHeartbeat();
         setInterval(sendHeartbeat, 60000);
         setTimeout(() => { systemActive = true; }, CONFIG.START_DELAY);
@@ -372,44 +442,24 @@
     async function runTest() {
         const apiKey = localStorage.getItem('arb_api_key');
         const userId = localStorage.getItem('arb_id');
-        const userName = localStorage.getItem('arb_name');
-
+        if (!userId || !apiKey) return;
         logger("🚀 STARTING CONNECTIVITY TEST...", "#a855f7");
-
-        if (!userId || !apiKey) {
-            alert("❌ Спочатку увійдіть в систему!");
-            return;
-        }
-
         try {
             const t1 = performance.now();
             const res = await fetch(`${CONFIG.BACKEND}/api/test-connection`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userName, userId, apiKey })  // Додали apiKey
+                body: JSON.stringify({ userId, apiKey, userName: localStorage.getItem('arb_name') })
             });
             const t2 = performance.now();
-
-            const json = await res.json();
-
-            if (res.ok && json.success) {
-                const ping = (t2 - t1).toFixed(0);
-                logger(`✅ SERVER RESPONSED: ${json.message}`, "#10b981");
-                logger(`⏱ Ping: ${ping}ms`, "#10b981");
-                alert(`✅ З'єднання відмінне!\n\nВідповідь сервера: "${json.message}"\nЗатримка: ${ping}ms`);
-            } else {
-                throw new Error(json.error || 'Unknown error');
-            }
-        } catch (e) {
-            logger(`❌ CONNECTION FAILED: ${e.message}`, "#ef4444");
-            alert(`❌ Помилка з'єднання:\n${e.message}`);
-        }
+            if (res.ok) alert(`✅ Статус: ОК\nЗатримка: ${(t2 - t1).toFixed(0)}ms`);
+        } catch (e) { alert("Error"); }
     }
 
     async function showStats() {
         try {
             const users = await fetch(`${CONFIG.BACKEND}/api/active-details`).then(r => r.json());
             alert(`Онлайн (${users.length}):\n${users.map(u => `${u.monitoring ? '🟢' : '🔴'} ${u.name}`).join('\n')}`);
-        } catch (e) { alert("Помилка"); }
+        } catch (e) { }
     }
 
     window.addEventListener('load', checkAuth);
