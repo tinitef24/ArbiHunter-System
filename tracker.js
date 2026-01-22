@@ -10,7 +10,8 @@
     const CONFIG = {
         BACKEND: 'https://arbitur.space',
         INTERVAL: 2500,
-        START_DELAY: 10000
+        START_DELAY: 10000,
+        MAX_WAIT_FOR_FUNDING: 60000 // 1 min fallback
     };
 
     let cardStates = new Map();
@@ -366,6 +367,32 @@
         } catch (e) { return null; }
     }
 
+    function checkFundingReady() {
+        const cards = document.querySelectorAll('.trade-card');
+        if (cards.length === 0) return false;
+
+        let allReady = true;
+        cards.forEach(card => {
+            const table = card.querySelector('.exhange-price-info');
+            const rows = Array.from(table?.querySelectorAll('tr') || []);
+            const fRow = rows.find(r => r.textContent.toLowerCase().includes('funding rate'));
+
+            if (!fRow) {
+                allReady = false;
+                return;
+            }
+
+            const fund1 = getSignedFunding(fRow.cells[1]);
+            const fund2 = getSignedFunding(fRow.cells[2]);
+
+            // Ready if any funding is non-zero (or not "-%")
+            if (fund1.val === 0 && fund2.val === 0) {
+                allReady = false;
+            }
+        });
+        return allReady;
+    }
+
     if (window.arb_monitor_active) return;
     window.arb_monitor_active = true;
 
@@ -376,20 +403,30 @@
         const apiKey = localStorage.getItem('arb_api_key');
         if (!apiKey) { isProcessing = false; return; }
 
+        const localProcessed = new Set();
+
         for (const card of document.querySelectorAll('.trade-card')) {
             const sym = card.querySelector('.trade-details strong')?.innerText;
             if (!sym) continue;
 
+            const ex1 = card.querySelector('.short')?.innerText.trim() || '?';
+            const ex2 = card.querySelector('.long')?.innerText.trim() || '?';
+            const cardKey = `${sym}_${ex1}_${ex2}`;
+
+            if (localProcessed.has(cardKey)) continue;
+            localProcessed.add(cardKey);
+
             const ordersRow = Array.from(card.querySelectorAll('tr')).find(r => r.innerText.includes('Orders'));
             const current = parseInt(ordersRow?.querySelector('td:last-child')?.innerText || "0");
-            const prev = cardStates.get(sym) || 0;
+            const prev = cardStates.get(cardKey) || 0;
 
             if (prev !== current) {
-                logger(`Зміна ${sym}: ${prev} -> ${current}`, "#f59e0b");
+                logger(`Зміна ${sym} [${ex1}-${ex2}]: ${prev} -> ${current}`, "#f59e0b");
                 const act = (prev === 0 && current > 0) ? 'open' : (current > prev ? 'increase' : (current === 0 ? 'close' : 'decrease'));
                 const data = extractData(card, act, current);
+
                 if (data) {
-                    console.log(`%c[ARB-TRACKER] %c📤 [CLIENT] Sending data for ${sym}`, "color: #6366f1; font-weight: bold; background: #1e1e2e; padding: 2px 5px; border-radius: 4px;", "color: #fff;");
+                    console.log(`%c[ARB-TRACKER] %c📤 [CLIENT] Sending data for ${sym} (${ex1}-${ex2})`, "color: #6366f1; font-weight: bold; background: #1e1e2e; padding: 2px 5px; border-radius: 4px;", "color: #fff;");
                     try {
                         const res = await fetch(`${CONFIG.BACKEND}/api/position`, {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -400,17 +437,26 @@
                                 apiKey
                             })
                         });
+
                         const resJ = await res.json();
+
                         if (res.ok && resJ.success) {
-                            logger(`✅ Signal sent: ${sym} ${act.toUpperCase()}`, "#10b981");
+                            logger(`✅ Signal sent: ${sym} (${ex1}-${ex2}) ${act.toUpperCase()}`, "#10b981");
                         } else {
-                            logger(`⛔ Server denied: ${resJ.error}`, "#ef4444");
+                            const errorMsg = resJ.error || resJ.reason || "Unknown Error";
+                            if (resJ.reason === 'duplicate_smart') {
+                                logger(`ℹ️ Signal skipped: ${sym} (${ex1}-${ex2}) (Deduplicated)`, "#94a3b8");
+                            } else {
+                                logger(`⛔ Server denied: ${errorMsg}`, "#ef4444");
+                            }
                             if (res.status === 403) systemActive = false;
                         }
-                    } catch (e) { logger(`❌ Network Error`, "#ef4444"); }
+                    } catch (e) {
+                        logger(`❌ Network Error: ${e.message}`, "#ef4444");
+                    }
                     await new Promise(r => setTimeout(r, 500));
                 }
-                cardStates.set(sym, current);
+                cardStates.set(cardKey, current);
             }
         }
         isProcessing = false;
@@ -432,11 +478,29 @@
     }
 
     function startSystem() {
-        logger("Запуск моніторингу...", "#10b981");
+        logger("Ініціалізація трекеру...", "#6366f1");
         sendHeartbeat();
         setInterval(sendHeartbeat, 60000);
-        setTimeout(() => { systemActive = true; }, CONFIG.START_DELAY);
-        setInterval(monitor, CONFIG.INTERVAL);
+
+        const startTime = Date.now();
+        const checkReady = setInterval(() => {
+            const isReady = checkFundingReady();
+            const elapsed = Date.now() - startTime;
+
+            if (isReady) {
+                clearInterval(checkReady);
+                logger("✅ Всі дані прогружені. Запуск моніторингу!", "#10b981");
+                systemActive = true;
+                setInterval(monitor, CONFIG.INTERVAL);
+            } else if (elapsed > CONFIG.MAX_WAIT_FOR_FUNDING) {
+                clearInterval(checkReady);
+                logger("⚠️ Тайм-аут очікування фандінгу. Запуск з наявними даними.", "#f59e0b");
+                systemActive = true;
+                setInterval(monitor, CONFIG.INTERVAL);
+            } else {
+                logger("⏳ Очікування завантаження даних...", "#94a3b8");
+            }
+        }, 2000);
     }
 
     async function runTest() {
