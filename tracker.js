@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Arbitrage Master Master v1.5 
+// @name         Arbitrage Master Master v1.6
 // @match        *://*/*
 // @grant        none
 // ==/UserScript==
@@ -11,7 +11,7 @@
         BACKEND: 'https://arbitur.space',
         INTERVAL: 2500,
         START_DELAY: 10000,
-        MAX_WAIT_FOR_FUNDING: 60000 // 1 min fallback
+        MAX_WAIT_FOR_FUNDING: 60000 
     };
 
     let cardStates = new Map();
