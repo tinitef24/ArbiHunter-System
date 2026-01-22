@@ -178,7 +178,7 @@
                     <div class="donate-text"><span>☕</span> Купити каву (BEP20)</div>
                 </div>
 
-                <div class="ver-badge">v1.5 Stable</div>
+                <div class="ver-badge">v1.6 Stable</div>
             </div>
             <div class="rocket ${isH ? '' : 'hidden'}" id="rock_btn">🚀</div>
         `;
