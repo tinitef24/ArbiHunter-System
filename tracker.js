@@ -11,7 +11,7 @@
         BACKEND: 'https://arbitur.space',
         INTERVAL: 2500,
         START_DELAY: 10000,
-        MAX_WAIT_FOR_FUNDING: 60000 
+        MAX_WAIT_FOR_FUNDING: 60000
     };
 
     let cardStates = new Map();
@@ -446,6 +446,8 @@
                             const errorMsg = resJ.error || resJ.reason || "Unknown Error";
                             if (resJ.reason === 'duplicate_smart') {
                                 logger(`ℹ️ Signal skipped: ${sym} (${ex1}-${ex2}) (Deduplicated)`, "#94a3b8");
+                            } else if (resJ.reason === 'lower_spread') {
+                                logger(`ℹ️ Скипнуто: ${sym} (Вже є сигнал з кращим спредом)`, "#94a3b8");
                             } else {
                                 logger(`⛔ Server denied: ${errorMsg}`, "#ef4444");
                             }
